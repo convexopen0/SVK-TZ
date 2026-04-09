@@ -1,0 +1,678 @@
+{
+  "name": "Test task",
+  "nodes": [
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        560,
+        -480
+      ],
+      "id": "bf2cfbf6-5977-4a42-8b8e-c1109273682d",
+      "name": "When clicking ‘Execute workflow’"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "select * from datasets_due_for_refresh();",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        0,
+        -144
+      ],
+      "id": "1c7f23e6-5147-435a-b57e-f8576659fdd4",
+      "name": "Execute a SQL query",
+      "alwaysOutputData": true,
+      "credentials": {
+        "postgres": {
+          "id": "whQQkFOA4NLSYmDa",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "c4cc3f2b-9358-4ce2-80c8-3c321581794b",
+              "leftValue": "={{ $json.dataset_id }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "string",
+                "operation": "exists",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "or"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        192,
+        -144
+      ],
+      "id": "c634cd9a-68a4-49c9-99fa-ce4cfa372aa9",
+      "name": "If"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// Цей код виконається окремо для кожного датасета з попередньої ноди.\n// $input.item.json — дані поточного item.\n\nconst item = $input.item.json;\n\n// Вирішуємо: створюємо новий job чи продовжуємо існуючий ретрай?\n// Якщо з функції прийшов pending_job_id — це ретрай, ми оновлюємо існуючий.\n// Якщо null — створюємо новий job з attempt=1.\n\nconst isRetry = item.pending_job_id !== null;\n\nreturn {\n  json: {\n    dataset_id:     item.dataset_id,\n    name:           item.name,\n    source_type:    item.source_type,\n    source_config:  item.source_config,\n    max_retries:    item.max_retries,\n    reason:         item.reason,\n    // Поля для job-а:\n    job_id:         item.pending_job_id,          // null для нового\n    attempt:        isRetry ? item.pending_attempt + 1 : 1,\n    is_retry:       isRetry\n  }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        624,
+        -96
+      ],
+      "id": "dbaa779e-9b4f-4909-b9a5-12cd577b4a67",
+      "name": "Code in JavaScript"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "insert into refresh_jobs (id, dataset_id, status, attempt, started_at)\nvalues (\n  coalesce(\n    nullif(nullif('{{ $json.job_id }}', 'null'), '')::uuid, \n    gen_random_uuid()\n  ),\n  '{{ $json.dataset_id }}'::uuid,\n  'running',\n  {{ $json.attempt }},\n  now()\n)\non conflict (id) do update set\n  status = 'running',\n  started_at = now(),\n  attempt = excluded.attempt,\n  finished_at = null,\n  error_message = null\nreturning id as job_id;",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        832,
+        -96
+      ],
+      "id": "a150282a-759d-435b-8dc6-727f50f0e589",
+      "name": "Execute a SQL query1",
+      "credentials": {
+        "postgres": {
+          "id": "whQQkFOA4NLSYmDa",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $('Execute a SQL query').item.json.source_type }}",
+                    "rightValue": "gsheet",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "0f1849fb-a51d-4f8b-abd2-e38cad1a724a"
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "95f478bc-dba5-40c9-b19b-5469a73c4df2",
+                    "leftValue": "={{ $('Execute a SQL query').item.json.source_type }}",
+                    "rightValue": "sql",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.4,
+      "position": [
+        1040,
+        -96
+      ],
+      "id": "171cc5a7-3340-4e26-99f3-edad277d42d8",
+      "name": "Switch"
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $('Execute a SQL query').item.json.source_config.spreadsheet_id }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "={{ $('Execute a SQL query').item.json.source_config.sheet_name }}"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        1248,
+        -192
+      ],
+      "id": "41b9dda9-8f51-4bf7-a209-27077480e486",
+      "name": "Get row(s) in sheet",
+      "retryOnFail": false,
+      "waitBetweenTries": 5000,
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "ngbpYl2g3Bl8rUJV",
+          "name": "Google Sheets OAuth2 API"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "{{ $('Execute a SQL query').item.json.source_config.query }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1248,
+        0
+      ],
+      "id": "1f19062f-5cf4-4dda-95ff-99aa561e6744",
+      "name": "Execute a SQL query2",
+      "retryOnFail": false,
+      "waitBetweenTries": 5000,
+      "credentials": {
+        "postgres": {
+          "id": "whQQkFOA4NLSYmDa",
+          "name": "Postgres account"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Режим: Run Once for All Items\nconst rows = $input.all().map(item => item.json);\n\n// В цій гілці upstream context — тільки один датасет,\n// тому .first() тут безпечний: у гілку прилетіла одна конкретна\n// Code in JavaScript execution, все від неї.\nconst meta = $('Code in JavaScript').item.json;\nconst jobData = $('Execute a SQL query1').item.json;\n\nreturn [{\n  json: {\n    dataset_id: meta.dataset_id,\n    job_id:     jobData.job_id,\n    data:       rows,\n    row_count:  rows.length,\n    fetched_at: new Date().toISOString()\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1472,
+        -208
+      ],
+      "id": "bdbc1ffb-2324-46ff-a69e-680b67e01863",
+      "name": "Code in JavaScript1"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "with deactivate as (\n  update snapshots\n  set is_current = false\n  where dataset_id = $1::uuid and is_current = true\n  returning 1\n)\ninsert into snapshots (dataset_id, data, row_count, is_current)\nvalues ($1::uuid, $2::jsonb, $3::int, true)\nreturning id;",
+        "options": {
+          "queryReplacement": "={{ $json.dataset_id }}, {{ JSON.stringify($json.data) }}, {{ $json.row_count }}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1664,
+        -208
+      ],
+      "id": "9bb9241d-0ef5-45fb-8880-6b1c88b246b5",
+      "name": "Execute a SQL query3",
+      "credentials": {
+        "postgres": {
+          "id": "whQQkFOA4NLSYmDa",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "update refresh_jobs\nset status = 'success',\n    finished_at = now(),\n    snapshot_id = $1::uuid\nwhere id = $2::uuid;",
+        "options": {
+          "queryReplacement": "={{ $json.id }}, {{ $('Code in JavaScript1').first().json.job_id }}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1840,
+        -208
+      ],
+      "id": "5f5469e8-6e81-4c07-bd9b-c7bf425832f4",
+      "name": "Execute a SQL query4",
+      "credentials": {
+        "postgres": {
+          "id": "whQQkFOA4NLSYmDa",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Режим: Run Once for Each Item\nconst item = $input.item.json;\n\n// Весь контекст датасета живе в Code1 — звідти і беремо\nconst ctx = $('Code in JavaScript').item.json;\n\nconst attempt = ctx.attempt;\nconst maxRetries = ctx.max_retries;\n\n// Експоненційний backoff: 30, 60, 120, 240, 480 секунд\nconst backoffSec = 30 * Math.pow(2, attempt - 1);\nconst nextRetryAt = new Date(Date.now() + backoffSec * 1000).toISOString();\n\nconst shouldRetry = attempt < maxRetries;\n\n// Текст помилки з error output\nconst errorMessage = \n  $input.item.error?.message || \n  item.error?.message || \n  item.message || \n  JSON.stringify(item).slice(0, 500);\n\nreturn {\n  json: {\n    job_id:        ctx.job_id,\n    dataset_id:    ctx.dataset_id,\n    dataset_name:  ctx.name,\n    attempt:       attempt,\n    max_retries:   maxRetries,\n    should_retry:  shouldRetry,\n    next_retry_at: nextRetryAt,\n    error_message: errorMessage,\n    new_status:    shouldRetry ? 'retrying' : 'failed'\n  }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        416,
+        176
+      ],
+      "id": "d67d7dd0-1d74-4068-9ff3-f122744965cb",
+      "name": "Code in JavaScript2"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "update refresh_jobs\nset status = $1,\n    finished_at = case when $1 = 'failed' then now() else finished_at end,\n    next_retry_at = case when $1 = 'retrying' then $2::timestamptz else null end,\n    error_message = $3\nwhere id = $4;",
+        "options": {
+          "queryReplacement": "={{ $json.new_status }}, {{ $json.next_retry_at }}, {{ $json.error_message }}, {{ $json.job_id }}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        624,
+        176
+      ],
+      "id": "830fd3c6-3fce-4066-983a-5b180755bcfe",
+      "name": "Execute a SQL query5",
+      "credentials": {
+        "postgres": {
+          "id": "whQQkFOA4NLSYmDa",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "ac7decfd-2650-4274-8aec-cc8902b5b035",
+              "leftValue": "={{ $('Code in JavaScript2').item.json.new_status }}",
+              "rightValue": "failed",
+              "operator": {
+                "type": "string",
+                "operation": "equals",
+                "name": "filter.operator.equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        816,
+        176
+      ],
+      "id": "07c9a02b-4ec4-421a-9875-737bf3f05c83",
+      "name": "If1"
+    },
+    {
+      "parameters": {
+        "chatId": "527893501",
+        "text": "=❌ Refresh failed permanently  \nDataset: {{ $('Code in JavaScript2').item.json.dataset_name }}\nAttempts: {{ $('Code in JavaScript2').item.json.attempt }}/{{ $('Code in JavaScript2').item.json.max_retries }}\nError: {{ $('Code in JavaScript2').item.json.error_message }}",
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1056,
+        160
+      ],
+      "id": "1b051660-9fc3-4ae5-a0d8-7f168eaac0ef",
+      "name": "Send a text message",
+      "webhookId": "540625c5-a8d6-4ab6-8695-3e4d28ccdbf8",
+      "credentials": {
+        "telegramApi": {
+          "id": "ISCy3ehLxyermiUR",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Режим: Run Once for All Items\nconst rows = $input.all().map(item => item.json);\n\n// В цій гілці upstream context — тільки один датасет,\n// тому .first() тут безпечний: у гілку прилетіла одна конкретна\n// Code in JavaScript execution, все від неї.\nconst meta = $('Code in JavaScript').item.json;\nconst jobData = $('Execute a SQL query1').item.json;\n\nreturn [{\n  json: {\n    dataset_id: meta.dataset_id,\n    job_id:     jobData.job_id,\n    data:       rows,\n    row_count:  rows.length,\n    fetched_at: new Date().toISOString()\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1504,
+        -16
+      ],
+      "id": "c18ded5b-0870-450b-be96-27d514e744a3",
+      "name": "Code in JavaScript3"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "with deactivate as (\n  update snapshots\n  set is_current = false\n  where dataset_id = $1::uuid and is_current = true\n  returning 1\n)\ninsert into snapshots (dataset_id, data, row_count, is_current)\nvalues ($1::uuid, $2::jsonb, $3::int, true)\nreturning id;",
+        "options": {
+          "queryReplacement": "={{ $json.dataset_id }}, {{ JSON.stringify($json.data) }}, {{ $json.row_count }}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1696,
+        -16
+      ],
+      "id": "097cb0d1-2abf-48ab-8465-bfd02038d112",
+      "name": "Execute a SQL query6",
+      "credentials": {
+        "postgres": {
+          "id": "whQQkFOA4NLSYmDa",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "update refresh_jobs\nset status = 'success',\n    finished_at = now(),\n    snapshot_id = $1::uuid\nwhere id = $2::uuid;",
+        "options": {
+          "queryReplacement": "={{ $json.id }}, {{ $('Code in JavaScript3').first().json.job_id }}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1872,
+        -16
+      ],
+      "id": "f770406a-68b2-45d5-8b06-93e93aa1521b",
+      "name": "Execute a SQL query7",
+      "credentials": {
+        "postgres": {
+          "id": "whQQkFOA4NLSYmDa",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 1
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        -48,
+        -464
+      ],
+      "id": "51b4024d-183b-446a-bbee-9b1e39429ad1",
+      "name": "Schedule Trigger"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "When clicking ‘Execute workflow’": {
+      "main": [
+        [
+          {
+            "node": "Execute a SQL query",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute a SQL query": {
+      "main": [
+        [
+          {
+            "node": "If",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript": {
+      "main": [
+        [
+          {
+            "node": "Execute a SQL query1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute a SQL query1": {
+      "main": [
+        [
+          {
+            "node": "Switch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Switch": {
+      "main": [
+        [
+          {
+            "node": "Get row(s) in sheet",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Execute a SQL query2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get row(s) in sheet": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Code in JavaScript2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute a SQL query2": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript3",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Code in JavaScript2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript1": {
+      "main": [
+        [
+          {
+            "node": "Execute a SQL query3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute a SQL query3": {
+      "main": [
+        [
+          {
+            "node": "Execute a SQL query4",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute a SQL query4": {
+      "main": [
+        []
+      ]
+    },
+    "Code in JavaScript2": {
+      "main": [
+        [
+          {
+            "node": "Execute a SQL query5",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute a SQL query5": {
+      "main": [
+        [
+          {
+            "node": "If1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If1": {
+      "main": [
+        [
+          {
+            "node": "Send a text message",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Send a text message": {
+      "main": [
+        []
+      ]
+    },
+    "Code in JavaScript3": {
+      "main": [
+        [
+          {
+            "node": "Execute a SQL query6",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute a SQL query6": {
+      "main": [
+        [
+          {
+            "node": "Execute a SQL query7",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Execute a SQL query",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "34f2a90d-a14d-4663-8d90-85c464e965cb",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "a12fb0579ac0642e564f945ff742228601a09072a7348a79d9cc88f9d844906b"
+  },
+  "id": "FDahUgdeXYO0pJFn",
+  "tags": []
+}
